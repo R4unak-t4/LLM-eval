@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BSM Hospital RAG Retrieval Engine</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">🏥</div>
+        <div>
+          <h1>BSM Hospital Retrieval Engine</h1>
+          <p class="subtitle">Multi-Strategy Search: BM25, Dense Embeddings & Hybrid Fusion (RRF & Weighted)</p>
+        </div>
+      </div>
+      <div class="status-pill" id="statsPill">
+        <span class="status-dot"></span>
+        <span id="statsText">Loading document index...</span>
+      </div>
+    </header>
+
+    <!-- Main Search Card -->
+    <section class="card search-card">
+      <form id="searchForm" class="search-form" onsubmit="event.preventDefault(); handleSearch();">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input 
+            type="text" 
+            id="queryInput" 
+            placeholder="Search BSM Hospital handbook (e.g., 'emergency triage priority levels', 'mislabeled specimen')..."
+            autocomplete="off"
+            required
+          />
+          <button type="button" id="clearBtn" class="clear-btn" title="Clear input" onclick="clearSearch()">×</button>
+        </div>
+        <button type="submit" id="searchBtn" class="search-btn">
+          <span id="btnText">Search</span>
+          <div id="btnSpinner" class="spinner hidden"></div>
+        </button>
+      </form>
+
+      <!-- Suggested Sample Queries -->
+      <div class="examples-container">
+        <span class="examples-label">Try sample queries:</span>
+        <div class="example-chips" id="exampleChips">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Retrieval Strategy Tabs & Controls -->
+    <section class="card controls-card">
+      <div class="controls-header">
+        <div class="tabs-group" role="tablist">
+          <button class="tab-btn active" data-mode="bm25" onclick="selectMode('bm25')">
+            <span class="tab-icon">⚡</span>
+            <span class="tab-title">BM25 (Sparse)</span>
+          </button>
+          <button class="tab-btn" data-mode="dense" onclick="selectMode('dense')">
+            <span class="tab-icon">🧠</span>
+            <span class="tab-title">Dense (Semantic)</span>
+          </button>
+          <button class="tab-btn" data-mode="rrf" onclick="selectMode('rrf')">
+            <span class="tab-icon">🔀</span>
+            <span class="tab-title">RRF Fusion</span>
+          </button>
+          <button class="tab-btn" data-mode="weighted" onclick="selectMode('weighted')">
+            <span class="tab-icon">⚖️</span>
+            <span class="tab-title">Weighted Fusion</span>
+          </button>
+          <button class="tab-btn compare-tab" data-mode="compare" onclick="selectMode('compare')">
+            <span class="tab-icon">📊</span>
+            <span class="tab-title">Compare All 4</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Mode Descriptions & Parameter Sliders -->
+      <div class="parameters-panel">
+        <div class="mode-info" id="modeInfo">
+          <!-- Filled dynamically based on active mode -->
+        </div>
+
+        <div class="sliders-row">
+          <!-- Top K Control -->
+          <div class="control-box">
+            <div class="control-label-row">
+              <label for="topKInput">Top K Results</label>
+              <span class="badge" id="topKVal">5</span>
+            </div>
+            <input type="range" id="topKInput" min="1" max="15" value="5" step="1" oninput="updateTopK(this.value)">
+            <div class="range-labels">
+              <span>1</span>
+              <span>8</span>
+              <span>15</span>
+            </div>
+          </div>
+
+          <!-- Weighted Alpha Slider (Visible for weighted & compare modes) -->
+          <div class="control-box" id="alphaControl">
+            <div class="control-label-row">
+              <label for="alphaInput">Dense Weight (α)</label>
+              <span class="badge badge-accent" id="alphaVal">0.50</span>
+            </div>
+            <input type="range" id="alphaInput" min="0.0" max="1.0" value="0.5" step="0.05" oninput="updateAlpha(this.value)">
+            <div class="range-labels">
+              <span>0.0 (BM25 Only)</span>
+              <span>0.5 (Balanced)</span>
+              <span>1.0 (Dense Only)</span>
+            </div>
+          </div>
+
+          <!-- RRF k Constant (Visible for RRF mode) -->
+          <div class="control-box" id="rrfControl" style="display: none;">
+            <div class="control-label-row">
+              <label for="rrfKInput">RRF Constant (k)</label>
+              <span class="badge" id="rrfKVal">60</span>
+            </div>
+            <input type="range" id="rrfKInput" min="10" max="100" value="60" step="5" oninput="updateRRFK(this.value)">
+            <div class="range-labels">
+              <span>10 (Aggressive)</span>
+              <span>60 (Standard)</span>
+              <span>100 (Conservative)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section class="results-section" id="resultsSection">
+      <div class="results-header" id="resultsHeader" style="display: none;">
+        <div class="results-summary">
+          <span id="resultsCount">0 results</span>
+          <span class="divider">•</span>
+          <span id="resultsMode">Mode</span>
+          <span class="divider">•</span>
+          <span id="resultsLatency" class="latency-badge">0.0 ms</span>
+        </div>
+        <div class="results-actions">
+          <button class="small-btn" onclick="toggleDetails()">Toggle Scores</button>
+        </div>
+      </div>
+
+      <!-- Single Mode Results Container -->
+      <div id="resultsContainer" class="results-grid"></div>
+
+      <!-- Compare Mode (4 Columns) Container -->
+      <div id="compareContainer" class="compare-grid" style="display: none;"></div>
+
+      <!-- Empty / Intro State -->
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <h3>Ready to Explore Retrieval</h3>
+        <p>Type a query above or click any sample prompt to compare BM25 keyword matching, Dense semantic retrieval, and Hybrid Fusion techniques.</p>
+      </div>
+    </section>
+
+    <!-- Footer info -->
+    <footer class="app-footer">
+      <div>
+        <strong>BSM Hospital Operations Handbook RAG System</strong> • Recursive Chunking (500 chars, 80 overlap) • <code>all-MiniLM-L6-v2</code> & BM25Okapi
+      </div>
+    </footer>
+  </div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
